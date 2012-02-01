@@ -69,12 +69,16 @@ var decideActuation = function() {
 	var x = averageState.x;
 	var y = averageState.y;
 	
-	var needsToTurn = (x < 100 || y < 50 || x > canvas.width - 100 || y > canvas.height - 50);
+	var proximityX = Math.min(x, canvas.width - x);
+	var proximityY = Math.min(y, canvas.height - y);
+	var proximity = Math.min(proximityX, proximityY)
 	
-	if (needsToTurn)
-		return { 'rudder' : 33, 'motor' : 1 };
+	if (proximity < 50)
+		return { 'rudder' : 60, 'motor' : 0.5 };
+	else if (proximity < 150)
+		return { 'rudder' : -5, 'motor' : 1 };
 	else
-		return { 'rudder' : -10, 'motor' : 2 };
+		return { 'rudder' : -10, 'motor' : 3 };
 }
 
 var computeAverageState = function() {
