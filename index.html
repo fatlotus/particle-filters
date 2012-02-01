@@ -1,0 +1,248 @@
+<title>Particle Filtering With JavaScript / Canvas</title><style type="text/css">
+body{background-color:#eee;}
+canvas{border:1px solid #ccc;background-color:#fff;}
+</style>
+
+<canvas width="800" height="600"></canvas>
+
+<script type='text/javascript'>
+var canvas = document.getElementsByTagName('canvas')[0];
+var context = canvas.getContext('2d');
+var particles = [ ];
+var actualState = null;
+var removeFraction = 0.08;
+var sounders = [ { x : 100, y : 100 }, { x: 500, y : canvas.height / 2 }, { x : 300, y : 100 } ];
+var time = 0;
+var regenerationProbability = 0.5;
+
+var generateState = function() {
+	return {
+		x : Math.random() * canvas.width,
+		y : Math.random() * canvas.height,
+		theta : Math.random() * Math.PI * 2,
+		dx : Math.random() * 1 - 0.5,
+		dy : Math.random() * 1 - 0.5,
+		dt : Math.random() * 10 - 10,
+		age : 0
+	}
+}
+
+var cloneState = function(st) {
+	return {
+		x : st.x + 1 * Math.random() - 0.5,
+		y : st.y + 1 * Math.random() - 0.5,
+		theta : st.theta + 0.1 * (Math.random() - 0.5),
+		dx : 0,
+		dy : 0,
+		dt : 0,
+		age : 0,
+	}
+}
+
+var advanceState = function(st) {
+	return {
+		x : Math.min(canvas.width - 15, Math.max(15, st.x + st.dx)),
+		y : Math.min(canvas.height - 15, Math.max(15, st.y + st.dy)),
+		theta : st.theta + st.dt,
+		dx : st.dx / 2,
+		dy : st.dy / 2,
+		dt : st.dt / 10,
+		age : st.age + 1
+	}
+}
+
+var applyActuators = function(st, rudder, motor) {
+	return {
+		x : st.x + st.dx,
+		y : st.y + st.dy,
+		theta : st.theta + st.dt,
+		dx : st.dx + Math.cos(st.theta) * motor * (1 + Math.random() * 0.1),
+		dy : st.dy + Math.sin(st.theta) * motor * (1 + Math.random() * 0.1),
+		dt : st.dt + rudder / 1000,
+		age : st.age
+	}
+}
+
+var decideActuation = function() {
+	var averageState = computeAverageState();
+	var x = averageState.x;
+	var y = averageState.y;
+	
+	var needsToTurn = (x < 100 || y < 50 || x > canvas.width - 100 || y > canvas.height - 50);
+	
+	if (needsToTurn)
+		return { 'rudder' : 33, 'motor' : 1 };
+	else
+		return { 'rudder' : -10, 'motor' : 2 };
+}
+
+var computeAverageState = function() {
+	var ax = 0;
+	var ay = 0;
+	var count = 0;
+	
+	for (var i = 0; i < particles.length; i++) {
+		if (particles[i].age <= 2) continue;
+		
+		ax += particles[i].x;
+		ay += particles[i].y;
+		count += 1;
+	}
+	
+	ax /= count;
+	ay /= count;
+	
+	return {
+		x : ax,
+		y : ay,
+		theta : 0,
+		dx : 0,
+		dy : 0,
+		dt : 0,
+		age : 0
+	}
+}
+
+var measureDistanceTo = function(st, x, y) {
+	var dx = st.x - x;
+	var dy = st.y - y;
+	
+	return Math.sqrt(dx * dx + dy * dy) + Math.random() * 5 - 2.5;
+}
+
+var drawState = function(st, isSpecial, isComputed) {
+	var sz = isSpecial ? 10 : 3;
+	var arrowLength = sz * Math.sqrt(st.dx * st.dx + st.dy * st.dy) * 2;
+	
+	context.save();
+	context.translate(st.x, st.y);
+	context.rotate(st.theta);
+	context.fillStyle = isSpecial ? (isComputed ? "#900" : "#39c") : "#222";
+	context.strokeStyle = "none";
+	context.fillRect(-sz / 2, -sz / 2, sz, sz);
+	context.fillStyle = "none";
+	context.strokeStyle = isSpecial ? (isComputed ? "#800" : "#28b") : "rgba(200, 200, 200, 50)";
+	context.beginPath();
+	context.moveTo(0, 0);
+	context.lineTo(arrowLength, 0);
+	context.stroke();
+	context.closePath();
+	context.restore();
+}
+
+var drawSounder = function(x, y, distance, estimatedDistance) {
+	var size = 15;
+	
+	context.fillStyle = "#999";
+	context.strokeStyle = "none";
+	context.save();
+	context.translate(x, y);
+	context.fillRect(-size / 2, -size / 2, size, size);
+	context.rotate(Math.PI / 4);
+	context.fillRect(-size / 2, -size / 2, size, size);
+	
+	context.fillStyle = "rgba(150, 150, 150, 0.1)";
+	context.strokeStyle = "rgba(150, 150, 150, .30)";
+	
+	context.beginPath();
+	context.arc(0, 0, distance, 0, Math.PI * 2, false);
+	context.stroke();
+	context.fill();
+	context.closePath();
+	
+	context.beginPath();
+	context.arc(0, 0, estimatedDistance, 0, Math.PI * 2, false);
+	context.stroke();
+	context.fill();
+	context.closePath();
+	
+	context.restore();
+}
+
+var advanceSimulation = function() {
+	var actuation = decideActuation();
+	var rudder = actuation['rudder'];
+	var motor = actuation['motor'];
+	
+	actualState = advanceState(applyActuators(actualState, rudder, motor));
+	
+	for (var i = 0; i < particles.length; i++) {
+		particles[i] = advanceState(applyActuators(particles[i], rudder, motor));
+	}
+	
+	var measuredDistance = [ ];
+	
+	for (var i = 0; i < sounders.length; i++) {
+		var sounder = sounders[i];
+		
+		measuredDistance[i] = measureDistanceTo(actualState, sounder.x, sounder.y);
+	}
+	
+	for (var i = 0; i < particles.length; i++) {
+		var particle = particles[i];
+		particle.likelihood = 0;
+		
+		for (var j = 0; j < sounders.length; j++) {
+			var sounder = sounders[j];
+			particle.likelihood += Math.pow(measureDistanceTo(particle, sounder.x, sounder.y) -
+				measuredDistance[j], 2);
+		}
+	}
+	
+	particles.sort(function(a, b) {
+		return b.likelihood - a.likelihood;
+	});
+	
+	for (var i = 0; i < particles.length * removeFraction; i++) {
+		if (Math.random() < regenerationProbability) {
+			particles[i] = generateState();
+		} else {
+			var choiceIndex = Math.floor((1 - Math.random() * removeFraction) * particles.length);
+			var choice = particles[choiceIndex];
+		
+			particles[i] = cloneState(choice);
+		}
+	}
+	
+	time += 0.1;
+	if (time > 5.0) time = 0;
+	
+	var averageState = computeAverageState();
+	
+	var estimatedDistance = [ ];
+	
+	for (var i = 0; i < sounders.length; i++) {
+		var sounder = sounders[i];
+		
+		estimatedDistance[i] = measureDistanceTo(averageState, sounder.x, sounder.y);
+	}
+	
+	context.clearRect(0, 0, canvas.width, canvas.height);
+	
+	for (var i = 0; i < particles.length; i++) {
+		if (particles[i].age > 2)
+			drawState(particles[i], false, false);
+	}
+	
+	drawState(actualState, true, false);
+	drawState(averageState, true, true);
+	
+	for (var i = 0; i < sounders.length; i++) {
+		drawSounder(sounders[i].x, sounders[i].y, measuredDistance[i], estimatedDistance[i]);
+	}
+}
+
+window.onclick = function() {
+	for (var i = 0; i < 500; i++) {
+		particles[i] = generateState();
+	}
+
+	actualState = generateState();
+
+	setInterval(function() {
+		advanceSimulation();
+	}, 50);
+}
+
+window.onclick();
+</script>
