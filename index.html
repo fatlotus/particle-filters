@@ -11,7 +11,7 @@ var context = canvas.getContext('2d');
 var particles = [ ];
 var actualState = null;
 var removeFraction = 0.08;
-var sounders = [ { x : 100, y : 100 },  { x: 500, y : canvas.height / 2 } /*, { x : 300, y : 100 } */ ];
+var sounders = [ { x : 100, y : 100 }, { x: 500, y : canvas.height / 2 }, { x : 300, y : 100 } ];
 var time = 0;
 var regenerationProbability = 0.5;
 var boatPath = null;
@@ -45,9 +45,9 @@ var advanceState = function(st) {
 		x : Math.min(canvas.width - 15, Math.max(15, st.x + st.dx)),
 		y : Math.min(canvas.height - 15, Math.max(15, st.y + st.dy)),
 		theta : st.theta + st.dt,
-		dx : st.dx / 2,
-		dy : st.dy / 2,
-		dt : st.dt / 10,
+		dx : st.dx / 1.1,
+		dy : st.dy / 1.1,
+		dt : st.dt / 2,
 		age : st.age + 1
 	}
 }
@@ -74,11 +74,11 @@ var decideActuation = function() {
 	var proximity = Math.min(proximityX, proximityY)
 	
 	if (proximity < 50)
-		return { 'rudder' : 60, 'motor' : 0.5 };
+		return { 'rudder' : 20, 'motor' : 0.1 };
 	else if (proximity < 150)
-		return { 'rudder' : -5, 'motor' : 1 };
+		return { 'rudder' : -2, 'motor' : 0.11 };
 	else
-		return { 'rudder' : -10, 'motor' : 3 };
+		return { 'rudder' : -5, 'motor' : 0.3 };
 }
 
 var computeAverageState = function() {
@@ -109,10 +109,14 @@ var computeAverageState = function() {
 }
 
 var measureDistanceTo = function(st, x, y) {
+	return measureActualDistanceTo(st, x, y) * (1 + 0.2 * Math.random() - 0.1);
+}
+
+var measureActualDistanceTo = function(st, x, y) {
 	var dx = st.x - x;
 	var dy = st.y - y;
 	
-	return Math.sqrt(dx * dx + dy * dy) + Math.random() * 20 - 10;
+	return Math.sqrt(dx * dx + dy * dy);
 }
 
 var drawState = function(st, isSpecial, isComputed) {
@@ -150,8 +154,8 @@ var drawSounder = function(x, y, distance, estimate) {
 	context.strokeStyle = "rgba(150, 150, 150, .30)";
 	
 	context.beginPath();
-	context.arc(0, 0, Math.abs(distance - 10), 0, Math.PI * 2, false);
-	context.arc(0, 0, distance + 10, 0, Math.PI * 2, false);
+	context.arc(0, 0, distance * 1.1, 0, Math.PI * 2, false);
+	context.arc(0, 0, distance * 0.9, 0, Math.PI * 2, false);
 	context.stroke();
 	context.fill();
 	context.closePath();
@@ -187,10 +191,12 @@ var advanceSimulation = function() {
 	boatPath.push({ x : actualState.x, y : actualState.y });
 	
 	var measuredDistance = [ ];
+	var actualDistance = [ ];
 	
 	for (var i = 0; i < sounders.length; i++) {
 		var sounder = sounders[i];
 		
+		actualDistance[i] = measureActualDistanceTo(actualState, sounder.x, sounder.y);
 		measuredDistance[i] = measureDistanceTo(actualState, sounder.x, sounder.y);
 	}
 	
@@ -225,18 +231,10 @@ var advanceSimulation = function() {
 	
 	var averageState = computeAverageState();
 	
-	var estimatedDistance = [ ];
-	
-	for (var i = 0; i < sounders.length; i++) {
-		var sounder = sounders[i];
-		
-		estimatedDistance[i] = measureDistanceTo(averageState, sounder.x, sounder.y);
-	}
-	
 	context.clearRect(0, 0, canvas.width, canvas.height);
 	
 	for (var i = 0; i < sounders.length; i++) {
-		drawSounder(sounders[i].x, sounders[i].y, measuredDistance[i], estimatedDistance[i]);
+		drawSounder(sounders[i].x, sounders[i].y, actualDistance[i], measuredDistance[i]);
 	}
 	
 	drawBoatPath();
