@@ -10,11 +10,27 @@ var canvas = document.getElementsByTagName('canvas')[0];
 var context = canvas.getContext('2d');
 var particles = [ ];
 var actualState = null;
-var removeFraction = 0.08;
-var sounders = [ { x : 100, y : 100 }, { x: 500, y : canvas.height / 2 }, { x : 300, y : 100 } ];
+var removeFraction = 0.08; // 8;
+var removeSounderFraction = 0.004;
+var removeSounderFractionWhenAngry = 0.05;
+var sounders = [ { x : 15, y : 15 }, { x : 200, y : 15 }, { x: canvas.width - 15, y : canvas.height / 2 } ];
+var estimatedSounders = [ [], [], [] ];
 var time = 0;
 var regenerationProbability = 0.5;
-var boatPath = null;
+var previousAverageState = { x: 0, y : 0 };
+var isAngry = false;
+var angerLevel = 0;
+var changeInDistanceToSounder = [ ];
+
+var generateSounder = function() {
+	return {
+		x : Math.random() * canvas.width,
+		y : Math.random() * canvas.height,
+		dx : 0,
+		dy : 0,
+		age : 0
+	}
+}
 
 var generateState = function() {
 	return {
@@ -33,22 +49,44 @@ var cloneState = function(st) {
 		x : st.x + 1 * Math.random() - 0.5,
 		y : st.y + 1 * Math.random() - 0.5,
 		theta : st.theta + 0.1 * (Math.random() - 0.5),
-		dx : 0,
-		dy : 0,
+		dx : st.dx + 0.1 * (Math.random() - 0.5),
+		dy : st.dy + 0.1 * (Math.random() - 0.5),
 		dt : 0,
 		age : 0,
+	}
+}
+
+var cloneSounder = function(sn) {
+	return {
+		x : sn.x + 10 * (Math.random() - 0.5),
+		y : sn.y + 10 * (Math.random() - 0.5),
+		dx : 0,
+		dy : 0,
+		age : 0
 	}
 }
 
 var advanceState = function(st) {
 	return {
 		x : Math.min(canvas.width - 15, Math.max(15, st.x + st.dx)),
-		y : Math.min(canvas.height - 15, Math.max(15, st.y + st.dy)),
+		y : Math.min(canvas.height - 15, Math.min(canvas.height / 2 + st.x,
+			Math.max(15, st.y + st.dy))),
 		theta : st.theta + st.dt,
 		dx : st.dx / 1.1,
 		dy : st.dy / 1.1,
 		dt : st.dt / 2,
 		age : st.age + 1
+	}
+}
+
+var advanceSounder = function(sn) {
+	return {
+		x : Math.min(canvas.width - 15, Math.max(15, sn.x + sn.dx)),
+		y : Math.min(canvas.height - 15, Math.min(canvas.height / 2 + sn.x,
+			Math.max(15, sn.y + sn.dy))),
+		dx : 0,
+		dy : 0,
+		age : sn.age + 1
 	}
 }
 
@@ -68,17 +106,53 @@ var decideActuation = function() {
 	var averageState = computeAverageState();
 	var x = averageState.x;
 	var y = averageState.y;
+	var certainty = computeCertainty(x, y);
 	
-	var proximityX = Math.min(x, canvas.width - x);
-	var proximityY = Math.min(y, canvas.height - y);
-	var proximity = Math.min(proximityX, proximityY)
+	if (certainty < 3.0) {
+		var threshold = (isAngry ? 1.5 : 2.1)
+		angerLevel -= 0.01 * (certainty - threshold) * Math.abs(certainty - threshold);
+	} else if (isAngry) {
+		angerLevel -= 0.007;
+	} else {
+		angerLevel -= 0.003;
+	}
+	
+	if (angerLevel > 0.8) {
+		isAngry = true;
+	} else if (angerLevel < 0.4) {
+		isAngry = false;
+	}
+	
+	if (angerLevel < 0) {
+		angerLevel = 0;
+	} else if (angerLevel > 1.0) {
+		angerLevel = 1.0;
+	}
+	
+	var dx = x - previousAverageState.x;
+	var dy = y - previousAverageState.y;
+	
+	dx /= Math.abs(dx);
+	dy /= Math.abs(dy);
+	
+	if (dx != dx) dx = 42;
+	if (dy != dy) dy = 42;
+	
+	var proximityX = -Math.min(x * dx, (x - canvas.width) * dx);
+	var proximityY = -Math.min(y * dy, Math.min(canvas.height / 2 + x,
+		(y - canvas.height) * dy));
+	var proximity = Math.min(proximityX, proximityY);
+	
+	var rudderLevel = 3.0;
+	var motorLevel = 0.3;
+	
+	if (angerLevel < 0)
+		rudderLevel = 7.0;
 	
 	if (proximity < 50)
-		return { 'rudder' : 20, 'motor' : 0.1 };
-	else if (proximity < 150)
-		return { 'rudder' : -2, 'motor' : 0.11 };
-	else
-		return { 'rudder' : -5, 'motor' : 0.3 };
+		motorLevel *= 0.9;
+	
+	return { 'rudder' : rudderLevel, 'motor' : motorLevel }
 }
 
 var computeAverageState = function() {
@@ -87,7 +161,7 @@ var computeAverageState = function() {
 	var count = 0;
 	
 	for (var i = 0; i < particles.length; i++) {
-		if (particles[i].age <= 2) continue;
+		if (particles[i].age <= 15) continue;
 		
 		ax += particles[i].x;
 		ay += particles[i].y;
@@ -108,8 +182,45 @@ var computeAverageState = function() {
 	}
 }
 
+var computeAverageSounder = function(listOfSounders) {
+	var ax = 0;
+	var ay = 0;
+	var count = 0;
+	
+	for (var i = 0; i < listOfSounders.length; i++) {
+		if (listOfSounders[i].age <= 2) continue;
+		
+		ax += listOfSounders[i].x;
+		ay += listOfSounders[i].y;
+		count += 1;
+	}
+	
+	ax /= count;
+	ay /= count;
+	
+	return {
+		x : ax,
+		y : ay,
+		dx : 0,
+		dy : 0,
+		age : 0
+	}
+}
+
+var computeCertainty = function(x, y) {
+	var stdDev = 0;
+	
+	for (var i = 0; i < particles.length; i++) {
+		var particle = particles[i];
+		
+		stdDev += Math.pow(particle.x - x, 2) + Math.pow(particle.y - y, 2);
+	}
+	
+	return particles.length / Math.sqrt(stdDev) * 10; // [factor of ten to make units convenient].
+}
+
 var measureDistanceTo = function(st, x, y) {
-	return measureActualDistanceTo(st, x, y) * (1 + 0.2 * Math.random() - 0.1);
+	return measureActualDistanceTo(st, x, y) * (1 + 0.1 * Math.random() - 0.05);
 }
 
 var measureActualDistanceTo = function(st, x, y) {
@@ -139,42 +250,67 @@ var drawState = function(st, isSpecial, isComputed) {
 	context.restore();
 }
 
-var drawSounder = function(x, y, distance, estimate) {
+var drawSounder = function(number, x, y, distance, estimate, isSimulated) {
 	var size = 15;
 	
-	context.fillStyle = "#999";
-	context.strokeStyle = "none";
+	var colors = [ "#955", "#595", "#559" ];
+	
 	context.save();
 	context.translate(x, y);
+	
+	if (isSimulated) {
+		context.fillStyle = "rgba(150, 150, 150, 0.1)";
+		context.strokeStyle = "rgba(150, 150, 150, 0.3)";
+		context.beginPath();
+		context.arc(0, 0, 20, 0, 2 * Math.PI, false);
+		context.fill();
+		context.stroke();
+		context.closePath();
+	}
+	
+	context.globalAlpha = 0.6;
+	context.fillStyle = colors[number] || "#999";
+	context.strokeStyle = isSimulated ? "#111" : "none";
+	
 	context.fillRect(-size / 2, -size / 2, size, size);
 	context.rotate(Math.PI / 4);
 	context.fillRect(-size / 2, -size / 2, size, size);
 	
-	context.fillStyle = "rgba(150, 150, 150, 0.1)";
-	context.strokeStyle = "rgba(150, 150, 150, .30)";
+	context.globalAlpha = 1;
 	
-	context.beginPath();
-	context.arc(0, 0, distance * 1.1, 0, Math.PI * 2, false);
-	context.arc(0, 0, distance * 0.9, 0, Math.PI * 2, false);
-	context.stroke();
-	context.fill();
-	context.closePath();
+	if (!isSimulated) {
+		context.fillStyle = "rgba(150, 150, 150, 0.1)";
+		context.strokeStyle = "rgba(150, 150, 150, .30)";
+		
+		context.beginPath();
+		context.arc(0, 0, distance * 1.05, 0, Math.PI * 2, false);
+		context.stroke();
+		context.fill();
+		context.closePath();
+		context.beginPath();
+		context.arc(0, 0, distance * 0.95, 0, Math.PI * 2, false);
+		context.stroke();
+		context.fill();
+		context.closePath();
+	}
 	
 	context.restore();
 }
 
-var drawBoatPath = function() {
+var drawFakeSounder = function(number, x, y) {
+	var size = 3;
+	
+	var colors = [ "#fcc", "#beb", "#ccf" ];
+	
+	context.fillStyle = colors[number] || "#ddd";
+	context.strokeStyle = "#ccc";
+	context.save();
+	context.translate(x, y);
 	context.beginPath();
-	context.fillStyle = "none";
-	context.strokeStyle = "#222";
-	
-	for (var i = 0; i < boatPath.length; i++) {
-		var pos = boatPath[i];
-		context.lineTo(pos.x, pos.y);
-	}
-	
-	context.stroke();
+	context.arc(0, 0, size, 0, Math.PI * 2, false);
+	context.fill();
 	context.closePath();
+	context.restore();
 }
 
 var advanceSimulation = function() {
@@ -184,11 +320,17 @@ var advanceSimulation = function() {
 	
 	actualState = advanceState(applyActuators(actualState, rudder, motor));
 	
+	previousAverageState = computeAverageState();
+	
 	for (var i = 0; i < particles.length; i++) {
 		particles[i] = advanceState(applyActuators(particles[i], rudder, motor));
 	}
 	
-	boatPath.push({ x : actualState.x, y : actualState.y });
+	var averageSounders = [ ];
+	
+	for (var i = 0; i < sounders.length; i++) {
+		averageSounders[i] = computeAverageSounder(estimatedSounders[i]);
+	}
 	
 	var measuredDistance = [ ];
 	var actualDistance = [ ];
@@ -205,7 +347,8 @@ var advanceSimulation = function() {
 		particle.likelihood = 0;
 		
 		for (var j = 0; j < sounders.length; j++) {
-			var sounder = sounders[j];
+			var sounder = averageSounders[j];
+			
 			particle.likelihood += Math.pow(measureDistanceTo(particle, sounder.x, sounder.y) -
 				measuredDistance[j], 2);
 		}
@@ -226,18 +369,59 @@ var advanceSimulation = function() {
 		}
 	}
 	
+	var averageState = computeAverageState();
+	
+	for (var i = 0; i < estimatedSounders.length; i++) {
+		for (var j = 0; j < estimatedSounders[i].length; j++) {
+			var sounder = advanceSounder(estimatedSounders[i][j]);
+			
+			sounder.likelihood = Math.abs(measureActualDistanceTo(averageState, sounder.x, sounder.y)
+				- measuredDistance[i]);
+			
+			estimatedSounders[i][j] = sounder;
+		}
+		
+		estimatedSounders[i].sort(function(a, b) {
+			return b.likelihood - a.likelihood;
+		});
+		
+		var sounderDeathReate = (isAngry ? removeSounderFractionWhenAngry : removeSounderFraction);
+		
+		for (var j = 0; j < estimatedSounders[i].length * sounderDeathReate; j++) {
+			if (Math.random() < regenerationProbability) {
+				estimatedSounders[i][j] = generateState();
+			} else {
+				var choiceIndex = Math.floor((1 - Math.random() * removeFraction) *
+					estimatedSounders[i].length);
+				var choice = estimatedSounders[i][choiceIndex];
+				
+				estimatedSounders[i][j] = cloneState(choice);
+			}
+		}
+	}
+	
 	time += 0.1;
 	if (time > 5.0) time = 0;
 	
-	var averageState = computeAverageState();
-	
 	context.clearRect(0, 0, canvas.width, canvas.height);
 	
-	for (var i = 0; i < sounders.length; i++) {
-		drawSounder(sounders[i].x, sounders[i].y, actualDistance[i], measuredDistance[i]);
+	for (var i = 0; i < estimatedSounders.length; i++) {
+		for (var j = 0; j < estimatedSounders[i].length; j++) {
+			var sounder = estimatedSounders[i][j];
+			
+			if (sounder.age > 10)
+				drawFakeSounder(i, sounder.x, sounder.y);
+		}
 	}
 	
-	drawBoatPath();
+	for (var i = 0; i < sounders.length; i++) {
+		drawSounder(i, sounders[i].x, sounders[i].y, actualDistance[i], measuredDistance[i], false);
+	}
+	
+	for (var i = 0; i < averageSounders.length; i++) {
+		drawSounder(i, averageSounders[i].x, averageSounders[i].y,
+			actualDistance[i], measuredDistance[i], true);
+	}
 	
 	for (var i = 0; i < particles.length; i++) {
 		if (particles[i].age > 2)
@@ -246,6 +430,31 @@ var advanceSimulation = function() {
 	
 	drawState(actualState, true, false);
 	drawState(averageState, true, true);
+	
+	var c = Math.min(255, Math.max(0, parseInt(angerLevel * 200)));
+	var c2 = parseInt(c / 2);
+	var c4 = parseInt(c / 4);
+	
+	context.strokeStyle = "rgb("+(200-c)+","+(200-c2)+","+(200-c4)+");";
+	context.lineWidth = (isAngry ? 20 : 10);
+	context.beginPath();
+	context.arc(70, 530, 50, 0, angerLevel * Math.PI * 2, false);
+	context.stroke();
+	context.closePath();
+	context.lineWidth = 1;
+	context.strokeStyle = "#ccc";
+	context.beginPath();
+	context.arc(70, 530, (isAngry ? 60 : 55), 0, Math.PI * 2, false);
+	context.stroke();
+	context.closePath();
+	
+	var certainty = computeCertainty(averageState.x, averageState.y).toFixed(1);
+	
+	if (isNaN(certainty)) certainty = "0.0";
+	
+	context.fillStyle = "#000";
+	context.font = "bold 30px Helvetica,sans-serif";
+	context.fillText(certainty, 50, 540);
 }
 
 window.onclick = function() {
@@ -253,13 +462,25 @@ window.onclick = function() {
 		particles[i] = generateState();
 	}
 	
-	boatPath = [ ];
+	for (var i = 0; i < estimatedSounders.length; i++) {
+		for (var j = 0; j < 500; j++) {
+			estimatedSounders[i][j] = generateSounder();
+		}
+	}
 	
 	actualState = generateState();
 
 	setInterval(function() {
 		advanceSimulation();
 	}, 50);
+}
+
+window.onkeydown = function() {
+	removeSounderFraction = 0.1;
+}
+
+window.onkeyup = function() {
+	removeSounderFraction = 0.001;
 }
 
 window.onclick();
