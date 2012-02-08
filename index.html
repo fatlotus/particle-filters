@@ -49,9 +49,9 @@ var cloneState = function(st) {
 		x : st.x + 1 * Math.random() - 0.5,
 		y : st.y + 1 * Math.random() - 0.5,
 		theta : st.theta + 0.1 * (Math.random() - 0.5),
-		dx : st.dx + 0.1 * (Math.random() - 0.5),
-		dy : st.dy + 0.1 * (Math.random() - 0.5),
-		dt : 0,
+		dx : st.dx,
+		dy : st.dy,
+		dt : st.dt,
 		age : 0,
 	}
 }
