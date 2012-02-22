@@ -1,6 +1,6 @@
 ### Overview
 
-From an earlier email.
+From an earlier email:
 
 > Since my teachers neglected to assign any work this afternoon, I
 > hacked out a simple implementation of something called a "particle
@@ -45,7 +45,17 @@ adjustment of position and direction.
 
 There is also another half to the algorithm, however. Since the boat is regularly
 receiving sonar data, it must also remove those particles that aren't consistent
-with it's external model of the world.
+with its external model of the world. Supposing that it knows the distance from
+one sonar rangefinder is 45cm ± 4cm. Then every particle outside that distance
+is invalid and should be replaced with one more consistent with our own observations.
+This is implemented quite simply: there is an eighty-percent chance that every
+particle will replicate an existing one, and a twenty-percent chance that it will
+simply be replaced somewhere else.
+
+Adding noise or predicting a stochastic environment is actually quite simple. Every
+time-step, when a particle's state is to be advnaced, then a pseudo-random value
+is added to position to simulate fluidic motion. This allows the system to be
+tolerant of input noise and world messiness.
 
 [pf-intro]: https://www.ai-class.com/course/video/videolecture/149
 [pf-outro]: https://www.ai-class.com/course/video/videolecture/152
