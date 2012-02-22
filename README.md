@@ -82,6 +82,6 @@ position and momentum and the locations of the beacons. Naturally,
 this second simulation is much more sophisticated and takes more
 time to reach a solution.
 
-[first-sample]: https://fatlotus.github.com/particle-filters/plain.html
-[second-sample]: https://fatlotus.github.com/particle-filters/index.html
+[first-sample]: http://fatlotus.github.com/particle-filters/plain.html
+[second-sample]: http://fatlotus.github.com/particle-filters/index.html
 [slam-article]: https://en.wikipedia.org/wiki/Simultaneous_localization_and_mapping
