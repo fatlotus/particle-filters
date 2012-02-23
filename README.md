@@ -25,6 +25,8 @@ From an earlier email:
 > 
 > All the best,
 
+---
+
 #### Particle Filters Overview
 
 Particle filters, as originally explained, are best described in lectures
@@ -61,6 +63,8 @@ tolerant of input noise and world messiness.
 [pf-outro]: https://www.ai-class.com/course/video/videolecture/152
 [ai-course]: https://www.ai-class.com
 
+---
+
 #### The Application
 
 As stated above, the algorithm used is primarily one of dynamic
@@ -85,3 +89,18 @@ time to reach a solution.
 [first-sample]: http://fatlotus.github.com/particle-filters/plain.html
 [second-sample]: http://fatlotus.github.com/particle-filters/index.html
 [slam-article]: https://en.wikipedia.org/wiki/Simultaneous_localization_and_mapping
+
+---
+
+#### Coming Attractions
+
+Right now, the localization algorithm is not actually hyperbolic:
+the boat receives the absolute distance (with some noise) rather
+than the relative differences in distances from each sounding beacon.
+As it stands, this is actually not all that unrealistic. In the
+hardware implementation, I plan to use a synchronized clock, so that
+both the sending beacon and receiving beacon share a unified
+temporal frame of reference. From that clock, the boat can determine
+absolute distance. However, to truly demonstrate an entirely novel
+regression, the data received by the boat need to be relative in
+nature.
